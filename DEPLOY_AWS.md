@@ -1,131 +1,159 @@
-# Deploy ke AWS (Frontend & Backend Dipisah)
+# Tugas Praktikum AWS: Arsitektur 3-Tier (Frontend–Backend–Database)
 
-Panduan ini mengikuti arsitektur:
-- **EC2 Frontend (Public Subnet)**: melayani file `frontend/` + reverse proxy `/api/*`
-- **EC2 Backend (Private Subnet)**: menjalankan API PHP (`backend/`)
-- **RDS MySQL (Private Subnet)**: database aplikasi
+Dokumen ini mengikuti ketentuan:
+- VPC: `10.0.0.0/16`
+- Public Subnet (Frontend): `10.0.1.0/24`
+- Private Subnet Backend: `10.0.2.0/24`
+- Private Subnet Database: `10.0.3.0/24`
 
-## 1) Arsitektur & Security Group
+## 1) Setup Jaringan (VPC, Subnet, Route)
 
-## Komponen
-- FE EC2: punya Public IP / EIP
-- BE EC2: **tanpa** Public IP
-- RDS MySQL: **tanpa** Public Access
+1. Buat VPC dengan CIDR `10.0.0.0/16`.
+2. Buat 3 subnet:
+   - Public: `10.0.1.0/24`
+   - Private Backend: `10.0.2.0/24`
+   - Private Database: `10.0.3.0/24`
+3. Buat Internet Gateway dan attach ke VPC.
+4. Buat Route Table:
+   - Public RT: route `0.0.0.0/0` ke Internet Gateway
+   - Private RT: tanpa route langsung ke internet
+5. Associate subnet:
+   - Public Subnet → Public RT
+   - Private Backend + Private DB → Private RT
 
-## Security Group rekomendasi
-- `sg-frontend`
-  - Inbound: `80,443` dari `0.0.0.0/0`
-  - Outbound: allow ke `sg-backend` port `8000`
-- `sg-backend`
-  - Inbound: `8000` dari `sg-frontend`
-  - Outbound: allow ke `sg-rds` port `3306`
-- `sg-rds`
-  - Inbound: `3306` dari `sg-backend`
+## 2) Security Group
 
-## 2) Siapkan Backend EC2 (Private)
+### SG Frontend (`sg-frontend`)
+- Inbound:
+  - HTTP `80` dari `0.0.0.0/0`
+  - SSH `22` dari IP pribadi Anda
+- Outbound: default allow
 
-Upload project ke backend, misalnya ke `/opt/kopi-app`.
+### SG Backend (`sg-backend`)
+- Inbound:
+  - App port `5000` hanya dari `sg-frontend`
+  - SSH `22` dari Public Subnet (`10.0.1.0/24`)
+- Outbound: allow ke DB `3306`
 
-Jalankan di BE:
+### SG Database (`sg-rds`)
+- Inbound:
+  - MySQL `3306` hanya dari `sg-backend`
+
+## 3) Deploy RDS MySQL
+
+1. Engine: MySQL
+2. Instance: `db.t3.micro`
+3. DB Subnet Group: gunakan subnet `10.0.3.0/24` (dan subnet private lain di AZ berbeda jika diperlukan)
+4. Public Access: **No**
+5. Security Group: `sg-rds`
+6. Buat database `mahasiswa_db`
+7. Eksekusi file `backend/schema.sql`
+
+Contoh import dari EC2 backend:
 
 ```bash
-sudo mkdir -p /opt/kopi-app
-# copy folder backend ke /opt/kopi-app/backend
+mysql -h <rds-endpoint> -u admin -p mahasiswa_db < /opt/mahasiswa-app/backend/schema.sql
 ```
 
-Set environment (gunakan endpoint private RDS):
+## 4) Deploy EC2 Backend (Private)
+
+1. Launch EC2 Ubuntu `t2.micro` di subnet `10.0.2.0/24` tanpa public IP.
+2. Pasang Python dan dependensi:
 
 ```bash
-echo 'DB_HOST=your-rds-endpoint.rds.amazonaws.com' | sudo tee -a /etc/environment
+sudo apt update
+sudo apt install -y python3 python3-pip
+pip3 install flask flask-cors pymysql
+```
+
+3. Upload folder project ke `/opt/mahasiswa-app`.
+4. Set environment:
+
+```bash
+echo 'DB_HOST=<rds-endpoint>' | sudo tee -a /etc/environment
 echo 'DB_PORT=3306' | sudo tee -a /etc/environment
-echo 'DB_NAME=kopi_db' | sudo tee -a /etc/environment
+echo 'DB_NAME=mahasiswa_db' | sudo tee -a /etc/environment
 echo 'DB_USER=admin' | sudo tee -a /etc/environment
-echo 'DB_PASS=yourpassword' | sudo tee -a /etc/environment
+echo 'DB_PASS=<password>' | sudo tee -a /etc/environment
 ```
 
-Buat service systemd backend:
+5. Buat service systemd:
 
 ```bash
-sudo tee /etc/systemd/system/kopi-backend.service > /dev/null << 'EOF'
+sudo tee /etc/systemd/system/mahasiswa-backend.service > /dev/null << 'EOF'
 [Unit]
-Description=Kopi PHP Backend API
+Description=Flask Backend Mahasiswa
 After=network.target
 
 [Service]
-User=www-data
-WorkingDirectory=/opt/kopi-app/backend
+User=ubuntu
+WorkingDirectory=/opt/mahasiswa-app/backend
 EnvironmentFile=-/etc/environment
-ExecStart=/usr/bin/php -S 0.0.0.0:8000 -t /opt/kopi-app/backend /opt/kopi-app/backend/router.php
+ExecStart=/usr/bin/python3 /opt/mahasiswa-app/backend/app.py
 Restart=always
 RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
 EOF
-```
 
-Aktifkan service:
-
-```bash
 sudo systemctl daemon-reload
-sudo systemctl enable kopi-backend
-sudo systemctl restart kopi-backend
-sudo systemctl status kopi-backend --no-pager
+sudo systemctl enable mahasiswa-backend
+sudo systemctl restart mahasiswa-backend
+sudo systemctl status mahasiswa-backend --no-pager
 ```
 
-## 3) Siapkan Database RDS
+Endpoint backend:
+- `GET /mahasiswa`
+- `POST /mahasiswa`
+- `PUT /mahasiswa/{id}`
+- `DELETE /mahasiswa/{id}`
 
-Dari host yang bisa akses RDS (mis. BE EC2), jalankan schema:
+## 5) Deploy EC2 Frontend (Public)
+
+1. Launch EC2 Ubuntu `t2.micro` di subnet `10.0.1.0/24` (public IP aktif).
+2. Install Nginx:
 
 ```bash
-mysql -h your-rds-endpoint.rds.amazonaws.com -u admin -p kopi_db < /opt/kopi-app/backend/schema.sql
+sudo apt update
+sudo apt install -y nginx
 ```
 
-## 4) Siapkan Frontend EC2 (Public)
-
-Copy folder frontend ke `/var/www/kopi-frontend`.
-
-```bash
-sudo mkdir -p /var/www/kopi-frontend
-# copy isi folder frontend/ ke /var/www/kopi-frontend/
-```
-
-Pasang config Nginx frontend (gunakan IP private BE di `proxy_pass`):
+3. Copy frontend ke `/var/www/mahasiswa-frontend`.
+4. Copy file `deploy/nginx/frontend.conf` ke:
 
 ```bash
-sudo cp /path/project/deploy/nginx/frontend.conf /etc/nginx/sites-available/kopi-frontend
-sudo ln -s /etc/nginx/sites-available/kopi-frontend /etc/nginx/sites-enabled/kopi-frontend
+sudo cp /path/project/deploy/nginx/frontend.conf /etc/nginx/sites-available/mahasiswa-frontend
+sudo ln -s /etc/nginx/sites-available/mahasiswa-frontend /etc/nginx/sites-enabled/mahasiswa-frontend
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-> Di file `frontend.conf`, ubah `proxy_pass http://10.0.2.15:8000;` ke private IP backend Anda.
+5. Ubah `proxy_pass` di `frontend.conf` ke private IP backend, contoh `10.0.2.15:5000`.
 
-## 5) Verifikasi
+## 6) Verifikasi
 
-Dari browser publik:
-- `http://PUBLIC_IP_FE/` → halaman frontend tampil
-- `http://PUBLIC_IP_FE/health` (opsional jika diarahkan via FE) atau cek dari FE ke BE:
-
-Dari FE server:
+1. Dari FE EC2:
 
 ```bash
-curl http://10.0.2.15:8000/health
-curl http://10.0.2.15:8000/api/coffees
+curl http://10.0.2.15:5000/health
+curl http://10.0.2.15:5000/mahasiswa
 ```
 
-Dari browser user:
-- CRUD create/read/update/delete harus jalan via `/api/coffees`
+2. Dari browser publik:
+- Buka `http://<PUBLIC_IP_FRONTEND>/`
+- Coba CRUD mahasiswa (tambah, edit, hapus)
 
-## 6) HTTPS (Direkomendasikan)
+## 7) Bukti untuk Dikumpulkan
 
-Untuk production:
-- Gunakan ALB + ACM certificate, atau
-- Pasang certbot di FE EC2
-
-## Catatan penting
-
-- Frontend JS sudah menggunakan relative path `/api/coffees`, jadi tidak mengekspos private IP backend di browser.
-- Backend tetap bisa pakai endpoint private RDS via env `DB_HOST`.
-- Jika backend pindah host/IP, cukup ubah `proxy_pass` di FE Nginx, tanpa ubah frontend JS.
+1. Screenshot/rekaman:
+   - VPC
+   - Subnet
+   - Route Table
+   - Security Group
+   - EC2 frontend & backend running
+   - RDS running
+   - Website CRUD berhasil
+2. Diagram arsitektur (buat ulang sendiri)
+3. Gabungkan jadi dokumen `.docx`

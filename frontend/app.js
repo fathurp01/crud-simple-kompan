@@ -1,20 +1,26 @@
-const API_BASE_URL = '/api/coffees';
+const isLocalStaticServer =
+  ['127.0.0.1', 'localhost'].includes(window.location.hostname) &&
+  window.location.port === '8080';
 
-const form = document.getElementById('coffee-form');
+const API_BASE_URL = isLocalStaticServer
+  ? 'http://127.0.0.1:5000/mahasiswa'
+  : '/mahasiswa';
+
+const form = document.getElementById('mahasiswa-form');
 const messageEl = document.getElementById('message');
-const listEl = document.getElementById('coffee-list');
+const listEl = document.getElementById('mahasiswa-list');
 const formTitle = document.getElementById('form-title');
 const submitBtn = document.getElementById('submit-btn');
 const cancelBtn = document.getElementById('cancel-btn');
 
 const fields = {
-  id: document.getElementById('coffee-id'),
-  name: document.getElementById('name'),
-  origin: document.getElementById('origin'),
-  price: document.getElementById('price'),
-  stock: document.getElementById('stock'),
-  description: document.getElementById('description'),
+  id: document.getElementById('mahasiswa-id'),
+  nama: document.getElementById('nama'),
+  jurusan: document.getElementById('jurusan'),
+  angkatan: document.getElementById('angkatan'),
 };
+
+const mahasiswaById = new Map();
 
 function showMessage(text, isError = false) {
   messageEl.textContent = text;
@@ -24,19 +30,11 @@ function showMessage(text, isError = false) {
 function resetForm() {
   form.reset();
   fields.id.value = '';
-  formTitle.textContent = 'Tambah Kopi';
+  formTitle.textContent = 'Tambah Mahasiswa';
   submitBtn.textContent = 'Simpan';
 }
 
-function formatCurrency(value) {
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency',
-    currency: 'IDR',
-    maximumFractionDigits: 0,
-  }).format(Number(value));
-}
-
-async function loadCoffees() {
+async function loadMahasiswa() {
   try {
     const response = await fetch(API_BASE_URL);
     const result = await response.json();
@@ -46,19 +44,19 @@ async function loadCoffees() {
     }
 
     listEl.innerHTML = '';
+    mahasiswaById.clear();
 
-    for (const coffee of result.data || []) {
+    for (const mahasiswa of result.data || []) {
+      mahasiswaById.set(String(mahasiswa.id), mahasiswa);
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td>${coffee.name}</td>
-        <td>${coffee.origin}</td>
-        <td>${formatCurrency(coffee.price)}</td>
-        <td>${coffee.stock}</td>
-        <td>${coffee.description || '-'}</td>
+        <td>${mahasiswa.nama}</td>
+        <td>${mahasiswa.jurusan}</td>
+        <td>${mahasiswa.angkatan}</td>
         <td>
           <div class="row-actions">
-            <button data-action="edit" data-id="${coffee.id}">Edit</button>
-            <button class="secondary" data-action="delete" data-id="${coffee.id}">Hapus</button>
+            <button data-action="edit" data-id="${mahasiswa.id}">Edit</button>
+            <button class="secondary" data-action="delete" data-id="${mahasiswa.id}">Hapus</button>
           </div>
         </td>
       `;
@@ -67,7 +65,7 @@ async function loadCoffees() {
 
     if (!result.data || result.data.length === 0) {
       const tr = document.createElement('tr');
-      tr.innerHTML = '<td colspan="6">Belum ada data kopi.</td>';
+      tr.innerHTML = '<td colspan="4">Belum ada data mahasiswa.</td>';
       listEl.appendChild(tr);
     }
   } catch (error) {
@@ -77,11 +75,9 @@ async function loadCoffees() {
 
 function buildPayload() {
   return {
-    name: fields.name.value.trim(),
-    origin: fields.origin.value.trim(),
-    price: Number(fields.price.value),
-    stock: Number(fields.stock.value),
-    description: fields.description.value.trim(),
+    nama: fields.nama.value.trim(),
+    jurusan: fields.jurusan.value.trim(),
+    angkatan: Number(fields.angkatan.value),
   };
 }
 
@@ -105,7 +101,7 @@ form.addEventListener('submit', async (event) => {
 
     showMessage(result.message || 'Berhasil');
     resetForm();
-    await loadCoffees();
+    await loadMahasiswa();
   } catch (error) {
     showMessage(error.message, true);
   }
@@ -130,21 +126,17 @@ listEl.addEventListener('click', async (event) => {
 
   if (action === 'edit') {
     try {
-      const response = await fetch(`${API_BASE_URL}/${id}`);
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.message || 'Gagal mengambil detail data');
+      const mahasiswa = mahasiswaById.get(id);
+      if (!mahasiswa) {
+        throw new Error('Data mahasiswa tidak ditemukan');
       }
 
-      const coffee = result.data;
-      fields.id.value = coffee.id;
-      fields.name.value = coffee.name;
-      fields.origin.value = coffee.origin;
-      fields.price.value = coffee.price;
-      fields.stock.value = coffee.stock;
-      fields.description.value = coffee.description || '';
+      fields.id.value = mahasiswa.id;
+      fields.nama.value = mahasiswa.nama;
+      fields.jurusan.value = mahasiswa.jurusan;
+      fields.angkatan.value = mahasiswa.angkatan;
 
-      formTitle.textContent = 'Edit Kopi';
+      formTitle.textContent = 'Edit Mahasiswa';
       submitBtn.textContent = 'Update';
       showMessage('Mode edit aktif');
     } catch (error) {
@@ -168,11 +160,11 @@ listEl.addEventListener('click', async (event) => {
       }
 
       showMessage(result.message || 'Data berhasil dihapus');
-      await loadCoffees();
+      await loadMahasiswa();
     } catch (error) {
       showMessage(error.message, true);
     }
   }
 });
 
-loadCoffees();
+loadMahasiswa();

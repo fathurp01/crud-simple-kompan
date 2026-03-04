@@ -1,9 +1,9 @@
-# CRUD Website Kopi (Frontend & Backend Dipisah)
+# CRUD Mahasiswa (Frontend + Flask API + MySQL)
 
-Aplikasi CRUD sederhana untuk data kopi dengan:
-- Frontend: HTML, CSS, JavaScript murni
-- Backend: PHP murni (tanpa framework)
-- Database: MySQL (siap konek ke AWS RDS)
+Aplikasi CRUD sederhana untuk data mahasiswa dengan arsitektur 3-tier:
+- Frontend: HTML, CSS, JavaScript (EC2 Public)
+- Backend: Python Flask + PyMySQL (EC2 Private)
+- Database: MySQL (Amazon RDS Private)
 
 ## Struktur Folder
 
@@ -14,161 +14,61 @@ frontend/
   app.js
 
 backend/
-  index.php
-  config.php
+  app.py
   schema.sql
   .env.example
-  .htaccess
 ```
 
-## 1) Setup Database (AWS RDS MySQL)
+## Database
 
-1. Buat RDS MySQL di AWS.
-2. Pastikan `Public access` dan `Security Group` mengizinkan koneksi dari server Ubuntu Anda di port `3306`.
-3. Buat database, misalnya `kopi_db`.
-4. Jalankan SQL pada file `backend/schema.sql`.
+Gunakan `backend/schema.sql` untuk membuat database dan tabel:
+- Database: `mahasiswa_db`
+- Tabel: `mahasiswa(id, nama, jurusan, angkatan)`
 
-## 2) Konfigurasi Backend
+## Environment Backend
 
-Di server Ubuntu, set environment variable berikut:
+Backend membaca konfigurasi dari environment variable:
 
 ```bash
 export DB_HOST=your-rds-endpoint.rds.amazonaws.com
 export DB_PORT=3306
-export DB_NAME=kopi_db
+export DB_NAME=mahasiswa_db
 export DB_USER=admin
 export DB_PASS=yourpassword
 ```
 
-Catatan penting backend:
-- `DB_HOST` isi dengan private endpoint/IP database (contoh endpoint AWS RDS di VPC private).
-- Backend saat ini sudah mengembalikan JSON dan mengirim header API di `backend/index.php`:
-  - `Content-Type: application/json`
-  - `Access-Control-Allow-Origin: *`
-  - `Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS`
+## Menjalankan Backend Lokal
 
-## 3) Menjalankan Backend
-
-Masuk ke folder `backend`, jalankan:
+Install dependency:
 
 ```bash
-php -S 0.0.0.0:8000
+pip install flask flask-cors pymysql
 ```
 
-API endpoint:
-- `GET /api/coffees`
-- `GET /api/coffees/{id}`
-- `POST /api/coffees`
-- `PUT /api/coffees/{id}`
-- `DELETE /api/coffees/{id}`
+Jalankan:
 
-## 4) Menjalankan Frontend
+```bash
+python backend/app.py
+```
 
-Buka file `frontend/index.html` di browser.
+Endpoint utama:
+- `GET /mahasiswa`
+- `POST /mahasiswa`
+- `PUT /mahasiswa/{id}`
+- `DELETE /mahasiswa/{id}`
 
-Secara default frontend memanggil relative path (tanpa IP private):
+Endpoint `/api/mahasiswa` juga tetap tersedia sebagai kompatibilitas.
+
+## Menjalankan Frontend
+
+Frontend menggunakan relative path:
 
 ```js
-const API_BASE_URL = '/api/coffees';
+const API_BASE_URL = '/mahasiswa';
 ```
 
-Ini sengaja supaya JavaScript di browser **tidak pernah** memakai IP private backend.
-
-## Test Lokal CRUD (Paling Mudah)
-
-Karena frontend memakai relative path `/api/...`, test lokal paling enak pakai 1 server PHP + router.
-
-1. Set env database di terminal (PowerShell):
-
-```powershell
-$env:DB_HOST = "127.0.0.1"
-$env:DB_PORT = "3306"
-$env:DB_NAME = "kopi_db"
-$env:DB_USER = "root"
-$env:DB_PASS = ""
-```
-
-2. Import schema ke MySQL lokal:
-
-```powershell
-mysql -u root -p kopi_db < .\backend\schema.sql
-```
-
-3. Jalankan server dari root project:
-
-```powershell
-php -S 127.0.0.1:8080 -t .\frontend .\local-router.php
-```
-
-4. Buka browser:
-
-```text
-http://127.0.0.1:8080
-```
-
-5. Uji CRUD dari form di halaman:
-- Create: isi form lalu klik `Simpan`
-- Read: data tampil di tabel
-- Update: klik `Edit`, ubah data, klik `Update`
-- Delete: klik `Hapus`
-
-Opsional cek health API:
-
-```text
-http://127.0.0.1:8080/health
-```
-
-## 5) Reverse Proxy FE ke BE (Nginx)
-
-Di server frontend (public), arahkan prefix `/api/` ke backend private.
-
-Contoh Nginx (frontend EC2):
-
-```nginx
-server {
-  listen 80;
-  server_name _;
-
-  root /var/www/frontend;
-  index index.html;
-
-  location / {
-    try_files $uri $uri/ /index.html;
-  }
-
-  location /api/ {
-    proxy_pass http://10.0.2.15:8000/api/;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-  }
-}
-```
-
-Dengan pola ini:
-- Frontend cukup `fetch('/api/coffees')`.
-- Browser user tidak tahu/private IP backend tidak terekspos di kode JS.
-- Nginx yang meneruskan request ke backend private.
-
-## Contoh Payload JSON (POST/PUT)
-
-```json
-{
-  "name": "Arabica Gayo",
-  "origin": "Aceh",
-  "price": 28000,
-  "stock": 20,
-  "description": "Rasa fruity dan clean"
-}
-```
-
-## Catatan
-
-- Backend dan frontend dipisah folder agar sederhana dan mudah deploy.
-- Tidak menggunakan framework.
-- Koneksi database didesain langsung untuk MySQL RDS AWS menggunakan PDO.
+Di deployment AWS, endpoint ini diproxy Nginx dari FE EC2 ke private IP BE EC2.
 
 ## Deploy AWS
 
-- Panduan deploy lengkap (EC2 Frontend public + EC2 Backend private + RDS) ada di [DEPLOY_AWS.md](DEPLOY_AWS.md).
+Panduan detail deployment untuk praktikum tersedia di [DEPLOY_AWS.md](DEPLOY_AWS.md).

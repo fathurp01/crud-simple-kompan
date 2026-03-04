@@ -1,0 +1,9 @@
+flowchart LR
+    U[User Browser]
+    FE[EC2 Frontend\nPublic Subnet\n10.0.1.0/24\nNginx + Static Frontend]
+    BE[EC2 Backend\nPrivate Subnet\n10.0.2.0/24\nFlask API :5000]
+    DB[(RDS MySQL\nPrivate Subnet\n10.0.3.0/24\nmahasiswa_db)]
+
+    U -->|HTTP 80| FE
+    FE -->|Proxy /mahasiswa| BE
+    BE -->|MySQL 3306| DB
